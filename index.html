@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guias de Axé V&H | Guias e Artigos Religiosos Afro</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Georgia:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, collection, setDoc, updateDoc, deleteDoc, runTransaction, query, where, getDocs, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Verifica se existe configuração injetada (Ambiente de Dev) ou se está no GitHub (Produção sem backend)
+        const hasFirebaseConfig = typeof window.__firebase_config !== 'undefined' && window.__firebase_config;
+        
+        if (hasFirebaseConfig) {
+            console.log("Ambiente com Backend Detectado. Iniciando Firebase...");
+            const firebaseConfig = JSON.parse(window.__firebase_config);
+            const app = initializeApp(firebaseConfig);
+            
+            window.db = getFirestore(app);
+            window.auth = getAuth(app);
+            window.signInAnonymously = signInAnonymously;
+            window.signInWithCustomToken = signInWithCustomToken;
+            window.onAuthStateChanged = onAuthStateChanged;
+            window.doc = doc;
+            window.setDoc = setDoc;
+            window.onSnapshot = onSnapshot;
+            window.isLocalMode = false;
+        } else {
+            console.warn("Configuração de Backend não detectada. Ativando MODO LOCAL (GitHub/Offline).");
+            // Mock das funções do Firebase para não quebrar o código, mas usamos isLocalMode para a lógica real
+            window.isLocalMode = true;
+            window.auth = { currentUser: null }; // Mock simples
+        }
+
+        // Sinaliza que o script de infraestrutura carregou
+        window.infraInitialized = true;
+        window.dispatchEvent(new Event('infra-ready'));
+    </script>
+    
+    <script>
+        // Garante que o objeto window.tailwind exista para evitar ReferenceError
+        window.tailwind = window.tailwind || {};
+        
+        window.tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'terra-clara': '#F7F4F0',
+                        'terra-escura': '#6D4C41',
+                        'axe-principal': '#0284c7', // Azul Turquesa (Iemanjá/Ogum)
+                        'axe-secundario': '#B45309', // Ouro Velho (Oxum)
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        serif: ['Georgia', 'serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F7F4F0;
+            color: #1e1e1e;
+            scroll-behavior: smooth; 
+        }
+        .icon {
+            display: inline-block;
+            vertical-align: middle;
+        }
+        /* Utilitários */
+        .btn-primary {
+            @apply inline-flex items-center justify-center px-8 py-3 text-lg font-bold text-white bg-axe-principal rounded-xl shadow-lg transition duration-300 hover:bg-axe-secundario focus:outline-none focus:ring-4 focus:ring-axe-principal/50 cursor-pointer;
+        }
+        .product-card {
+            @apply bg-white p-4 rounded-xl shadow-md transition-all duration-300 hover:shadow-xl border border-transparent hover:border-axe-principal/50 flex flex-col h-full;
+        }
+        .page-content {
+            display: none;
+            animation: fadeIn 0.4s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        /* Modal e Overlays */
+        #message-modal { transition: opacity 0.3s ease; }
+        #cart-sidebar { transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    </style>
+</head>
+<body>
+
+    <div id="message-modal" class="hidden fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4">
+        <div id="message-content" class="bg-white p-6 rounded-2xl shadow-2xl w-full max-w-sm border-t-4 transform transition-all scale-100">
+            </div>
+    </div>
+    
+    <div id="cart-overlay" onclick="toggleCart()" class="fixed inset-0 bg-black/50 z-40 hidden transition-opacity duration-300 opacity-0"></div>
+
+    <div id="cart-sidebar" class="fixed top-0 right-0 h-full w-full sm:w-96 bg-white shadow-2xl z-50 transform translate-x-full flex flex-col">
+        <div class="p-5 border-b flex justify-between items-center bg-terra-clara">
+            <h2 class="text-2xl font-serif text-terra-escura font-bold flex items-center gap-2">
+                <i data-lucide="shopping-bag" class="w-6 h-6"></i> Carrinho
+            </h2>
+            <button onclick="toggleCart()" class="p-2 hover:bg-gray-200 rounded-full transition">
+                <i data-lucide="x" class="w-6 h-6 text-gray-600"></i>
+            </button>
+        </div>
+
+        <div id="cart-items" class="flex-1 p-4 overflow-y-auto space-y-4">
+            </div>
+
+        <div class="p-5 border-t bg-gray-50">
+            <div class="flex justify-between items-center mb-4 text-xl font-bold text-terra-escura">
+                <span>Total:</span>
+                <span>R$ <span id="cart-total">0,00</span></span>
+            </div>
+            <button onclick="checkoutViaWhatsApp()" id="checkout-btn" disabled class="w-full btn-primary bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                <i data-lucide="message-circle" class="w-5 h-5 mr-2"></i>
+                Enviar Pedido (WhatsApp)
+            </button>
+        </div>
+    </div>
+
+    <header class="sticky top-0 z-40 bg-white/95 backdrop-blur-md shadow-sm border-b border-stone-100">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
+            
+            <a href="#" onclick="showPage('home'); return false;" class="flex items-center gap-3 group">
+                <div class="relative w-10 h-10 overflow-hidden rounded-full border-2 border-axe-principal group-hover:border-axe-secundario transition">
+                    <img src="https://a.imagem.app/BgRYe2.jpeg" onerror="this.src='https://placehold.co/100x100/6D4C41/FFF?text=V&H'" alt="Logo" class="w-full h-full object-cover">
+                </div>
+                <div class="flex flex-col">
+                    <span class="text-xl font-serif font-bold text-terra-escura leading-tight">Guias de Axé V&H</span>
+                    <span class="text-xs text-axe-principal font-medium tracking-wide">Fé e Tradição</span>
+                </div>
+            </a>
+
+            <nav class="hidden md:flex space-x-8 text-sm font-semibold uppercase tracking-wide text-gray-600">
+                <a href="#" onclick="showPage('home'); return false;" class="hover:text-axe-principal transition">Início</a>
+                <a href="#" onclick="showPage('catalogo'); return false;" class="hover:text-axe-principal transition">Loja</a>
+                <a href="#sobre" onclick="showPage('sobre'); return false;" class="hover:text-axe-principal transition">Quem Somos</a>
+                <a href="#contato" onclick="scrollToId('contato'); return false;" class="hover:text-axe-principal transition">Contato</a>
+            </nav>
+
+            <div class="flex items-center gap-2">
+                <button onclick="toggleCart()" class="relative p-2 rounded-full hover:bg-stone-100 transition group">
+                    <i data-lucide="shopping-cart" class="w-6 h-6 text-terra-escura group-hover:text-axe-principal transition"></i>
+                    <span id="cart-counter" class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full h-5 w-5 flex items-center justify-center opacity-0 transform scale-0 transition-all duration-300">0</span>
+                </button>
+                <button onclick="toggleMobileMenu()" class="md:hidden p-2 rounded-full hover:bg-stone-100 transition">
+                    <i data-lucide="menu" id="mobile-menu-icon" class="w-6 h-6 text-terra-escura"></i>
+                </button>
+            </div>
+        </div>
+
+        <nav id="mobile-menu" class="hidden absolute top-full left-0 w-full bg-white shadow-lg border-t border-stone-100 md:hidden z-30">
+            <div class="flex flex-col py-2">
+                <a href="#" onclick="showPage('home'); toggleMobileMenu();" class="px-6 py-3 hover:bg-stone-50 text-terra-escura font-medium">Início</a>
+                <a href="#" onclick="showPage('catalogo'); toggleMobileMenu();" class="px-6 py-3 hover:bg-stone-50 text-terra-escura font-medium">Loja Completa</a>
+                <a href="#" onclick="showPage('sobre'); toggleMobileMenu();" class="px-6 py-3 hover:bg-stone-50 text-terra-escura font-medium">Sobre Nós</a>
+                <a href="#" onclick="toggleMobileMenu(); scrollToId('contato');" class="px-6 py-3 hover:bg-stone-50 text-terra-escura font-medium">Contato</a>
+            </div>
+        </nav>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 min-h-[80vh]">
+
+        <section id="home" class="page-content block">
+            
+            <div class="relative bg-gradient-to-r from-terra-escura to-[#8D6E63] text-white rounded-3xl overflow-hidden shadow-xl mb-12">
+                <div class="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+                <div class="relative z-10 px-6 py-12 md:p-16 flex flex-col md:flex-row items-center justify-between gap-8">
+                    <div class="md:w-3/5 text-center md:text-left space-y-6">
+                        <span class="inline-block px-3 py-1 bg-white/20 rounded-full text-xs font-bold tracking-wider uppercase backdrop-blur-sm">Artesanal & Sagrado</span>
+                        <h1 class="text-4xl md:text-6xl font-serif font-bold leading-tight">
+                            A Força da Ancestralidade em Cada Conta.
+                        </h1>
+                        <p class="text-lg md:text-xl text-stone-200 max-w-lg">
+                            Guias confeccionadas com rigor, respeito e axé. Encontre a proteção que você busca.
+                        </p>
+                        <button onclick="showPage('catalogo')" class="btn-primary bg-white text-terra-escura hover:bg-stone-100 hover:text-axe-principal border-0">
+                            Ver Coleção
+                        </button>
+                    </div>
+                    <div class="md:w-2/5 flex justify-center">
+                        <div class="relative w-64 h-64 md:w-80 md:h-80 bg-white/10 rounded-full p-4 backdrop-blur-sm border border-white/20 shadow-2xl animate-[pulse_4s_ease-in-out_infinite]">
+                            <img src="https://placehold.co/400x400/transparent/FFFFFF?text=Orix%C3%A1s" alt="Guias" class="w-full h-full object-contain drop-shadow-2xl">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-16">
+                <h2 class="text-3xl font-serif font-bold text-terra-escura mb-8 text-center flex items-center justify-center gap-3">
+                    <span class="h-px w-12 bg-axe-principal"></span>
+                    Nossas Linhas
+                    <span class="h-px w-12 bg-axe-principal"></span>
+                </h2>
+                
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+                    <div onclick="showPage('catalogo', 'Orixás')" class="cursor-pointer group bg-white p-6 rounded-2xl shadow-md hover:shadow-xl transition border border-transparent hover:border-axe-principal text-center">
+                        <div class="w-14 h-14 mx-auto bg-blue-50 text-axe-principal rounded-full flex items-center justify-center mb-4 group-hover:bg-axe-principal group-hover:text-white transition">
+                            <i data-lucide="star" class="w-7 h-7"></i>
+                        </div>
+                        <h3 class="font-bold text-terra-escura">Orixás</h3>
+                    </div>
+                    
+                    <div onclick="showPage('catalogo', 'Entidades')" class="cursor-pointer group bg-white p-6 rounded-2xl shadow-md hover:shadow-xl transition border border-transparent hover:border-red-500 text-center">
+                        <div class="w-14 h-14 mx-auto bg-red-50 text-red-600 rounded-full flex items-center justify-center mb-4 group-hover:bg-red-600 group-hover:text-white transition">
+                            <i data-lucide="flame" class="w-7 h-7"></i>
+                        </div>
+                        <h3 class="font-bold text-terra-escura">Entidades</h3>
+                    </div>
+
+                    <div onclick="showPage('catalogo', 'Banhos')" class="cursor-pointer group bg-white p-6 rounded-2xl shadow-md hover:shadow-xl transition border border-transparent hover:border-green-600 text-center">
+                        <div class="w-14 h-14 mx-auto bg-green-50 text-green-600 rounded-full flex items-center justify-center mb-4 group-hover:bg-green-600 group-hover:text-white transition">
+                            <i data-lucide="leaf" class="w-7 h-7"></i>
+                        </div>
+                        <h3 class="font-bold text-terra-escura">Banhos & Ervas</h3>
+                    </div>
+
+                    <div onclick="showPage('catalogo', 'Personalizados')" class="cursor-pointer group bg-white p-6 rounded-2xl shadow-md hover:shadow-xl transition border border-transparent hover:border-purple-500 text-center">
+                        <div class="w-14 h-14 mx-auto bg-purple-50 text-purple-600 rounded-full flex items-center justify-center mb-4 group-hover:bg-purple-600 group-hover:text-white transition">
+                            <i data-lucide="wand-2" class="w-7 h-7"></i>
+                        </div>
+                        <h3 class="font-bold text-terra-escura">Personalizados</h3>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="flex justify-between items-end mb-8">
+                    <h2 class="text-2xl md:text-3xl font-serif font-bold text-terra-escura">✨ Destaques do Mês</h2>
+                    <button onclick="showPage('catalogo')" class="text-axe-principal font-semibold hover:underline flex items-center">Ver tudo <i data-lucide="arrow-right" class="w-4 h-4 ml-1"></i></button>
+                </div>
+                <div id="home-products" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div class="col-span-full text-center py-10 text-gray-400">Carregando novidades...</div>
+                </div>
+            </div>
+
+        </section>
+
+        <section id="catalogo" class="page-content">
+            <div class="bg-white rounded-xl shadow-sm p-6 mb-8 border border-stone-100">
+                <h1 class="text-3xl font-serif font-bold text-terra-escura mb-2">Loja Completa</h1>
+                <p class="text-gray-500 mb-6" id="catalogo-subtitle">Todos os itens feitos com axé.</p>
+                
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div class="flex flex-wrap gap-2" id="filter-buttons">
+                        </div>
+                </div>
+            </div>
+
+            <div id="product-list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                </div>
+        </section>
+
+        <section id="detalhe" class="page-content">
+            <button onclick="showPage('catalogo')" class="group text-gray-500 hover:text-axe-principal mb-6 flex items-center font-medium transition">
+                <div class="p-1 bg-white rounded-full shadow-sm mr-2 group-hover:bg-axe-principal group-hover:text-white transition">
+                    <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                </div>
+                Voltar para a Loja
+            </button>
+
+            <div id="product-detail-content" class="bg-white rounded-3xl shadow-xl overflow-hidden min-h-[400px]">
+                </div>
+        </section>
+
+        <section id="sobre" class="page-content">
+            <div class="max-w-4xl mx-auto">
+                <div class="text-center mb-12">
+                    <h1 class="text-4xl font-serif font-bold text-terra-escura mb-4">Quem Somos</h1>
+                    <div class="h-1 w-20 bg-axe-principal mx-auto"></div>
+                </div>
+
+                <div class="bg-white p-8 md:p-12 rounded-3xl shadow-lg space-y-8 text-lg text-gray-700 leading-relaxed mb-12">
+                    <h2 class="text-2xl font-serif font-bold text-terra-escura border-b pb-2">Nossa Missão</h2>
+                    <p>
+                        A <strong class="text-terra-escura">Guias de Axé V&H</strong> nasceu de um desejo profundo: oferecer ferramentas espirituais que respeitem a liturgia, a estética e a energia sagrada das religiões de matriz africana.
+                    </p>
+                    <p>
+                        Cada conta colocada em nossos fios carrega uma reza, um pedido de proteção e o respeito absoluto por quem vai usá-la. Não vendemos apenas "colares"; entregamos elos de conexão com o Divino.
+                    </p>
+                    
+                    <div class="grid md:grid-cols-3 gap-6 mt-8">
+                        <div class="bg-terra-clara p-6 rounded-xl text-center">
+                            <i data-lucide="shield-check" class="w-8 h-8 mx-auto text-axe-principal mb-3"></i>
+                            <h3 class="font-bold text-terra-escura mb-2">Qualidade</h3>
+                            <p class="text-sm">Cristais, porcelanas e fios resistentes para durar uma vida.</p>
+                        </div>
+                        <div class="bg-terra-clara p-6 rounded-xl text-center">
+                            <i data-lucide="heart-handshake" class="w-8 h-8 mx-auto text-red-500 mb-3"></i>
+                            <h3 class="font-bold text-terra-escura mb-2">Respeito</h3>
+                            <p class="text-sm">Feito por quem é de axé, para quem é de axé.</p>
+                        </div>
+                        <div class="bg-terra-clara p-6 rounded-xl text-center">
+                            <i data-lucide="truck" class="w-8 h-8 mx-auto text-green-600 mb-3"></i>
+                            <h3 class="font-bold text-terra-escura mb-2">Agilidade</h3>
+                            <p class="text-sm">Envio rápido e seguro para todo o Brasil.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-8 md:p-12 rounded-3xl shadow-lg">
+                    <h2 class="text-3xl font-serif font-bold text-terra-escura mb-8 text-center">Conheça Nossas Energias</h2>
+                    
+                    <div class="space-y-10">
+                        <div>
+                            <h3 class="text-2xl font-bold text-axe-principal mb-4 flex items-center gap-2">
+                                <i data-lucide="sun" class="w-6 h-6"></i> Orixás
+                            </h3>
+                            <div class="grid md:grid-cols-2 gap-6">
+                                <div class="bg-terra-clara p-4 rounded-xl">
+                                    <strong class="text-terra-escura block text-lg">Oxalá</strong>
+                                    <p class="text-sm text-gray-600">O pai de todos os orixás, associado à paz, sabedoria e criação do mundo.</p>
+                                </div>
+                                <div class="bg-terra-clara p-4 rounded-xl">
+                                    <strong class="text-terra-escura block text-lg">Iemanjá</strong>
+                                    <p class="text-sm text-gray-600">A rainha do mar, simbolizando fertilidade, amor materno e proteção.</p>
+                                </div>
+                                <div class="bg-terra-clara p-4 rounded-xl">
+                                    <strong class="text-terra-escura block text-lg">Ogum</strong>
+                                    <p class="text-sm text-gray-600">O guerreiro, orixá que proporciona forças aos homens. Associado à guerra, trabalho, progresso e proteção.</p>
+                                </div>
+                                <div class="bg-terra-clara p-4 rounded-xl">
+                                    <strong class="text-terra-escura block text-lg">Xangô</strong>
+                                    <p class="text-sm text-gray-600">Orixá da justiça e do trovão. Ensinou o homem a fazer o fogo. Simboliza o poder e a força moral.</p>
+                                </div>
+                                <div class="bg-terra-clara p-4 rounded-xl">
+                                    <strong class="text-terra-escura block text-lg">Oxóssi</strong>
+                                    <p class="text-sm text-gray-600">O caçador, associado às matas, ao conhecimento, à fartura e ao sustento.</p>
+                                </div>
+                                <div class="bg-terra-clara p-4 rounded-xl">
+                                    <strong class="text-terra-escura block text-lg">Oxum</strong>
+                                    <p class="text-sm text-gray-600">A rainha das águas doces, simbolizando o amor, a beleza, a fertilidade e a prosperidade.</p>
+                                </div>
+                                <div class="bg-terra-clara p-4 rounded-xl">
+                                    <strong class="text-terra-escura block text-lg">Iansã</strong>
+                                    <p class="text-sm text-gray-600">A orixá vibrante, guerreira, associada aos ventos, tempestades e à luta pela justiça.</p>
+                                </div>
+                                <div class="bg-terra-clara p-4 rounded-xl">
+                                    <strong class="text-terra-escura block text-lg">Oxumaré</strong>
+                                    <p class="text-sm text-gray-600">O orixá do arco-íris e da renovação. Associado aos ciclos, à transformação e à riqueza.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h3 class="text-2xl font-bold text-axe-secundario mb-4 flex items-center gap-2">
+                                <i data-lucide="users" class="w-6 h-6"></i> Entidades
+                            </h3>
+                            <div class="grid md:grid-cols-2 gap-6">
+                                <div class="bg-stone-50 border-l-4 border-axe-secundario p-4 rounded-r-xl">
+                                    <strong class="text-terra-escura block text-lg">Caboclos</strong>
+                                    <p class="text-sm text-gray-600">Espíritos de ancestrais indígenas, conhecidos por sua forte ligação com a natureza, a sabedoria das matas e a cura.</p>
+                                </div>
+                                <div class="bg-stone-50 border-l-4 border-axe-secundario p-4 rounded-r-xl">
+                                    <strong class="text-terra-escura block text-lg">Pombagiras</strong>
+                                    <p class="text-sm text-gray-600">Entidades femininas de força e poder, que lutaram contra a opressão. Ajudam nos caminhos do amor e nas dificuldades da vida.</p>
+                                </div>
+                                <div class="bg-stone-50 border-l-4 border-axe-secundario p-4 rounded-r-xl">
+                                    <strong class="text-terra-escura block text-lg">Exus</strong>
+                                    <p class="text-sm text-gray-600">Guardiões e mensageiros. Simbolizam a comunicação, a vitalidade e a proteção, banindo energias estagnadas e abrindo caminhos.</p>
+                                </div>
+                                <div class="bg-stone-50 border-l-4 border-axe-secundario p-4 rounded-r-xl">
+                                    <strong class="text-terra-escura block text-lg">Zé Pelintra</strong>
+                                    <p class="text-sm text-gray-600">Figura central da malandragem sagrada e proteção dos humildes. Símbolo da sabedoria das ruas e da resistência popular.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <footer id="contato" class="bg-terra-escura text-stone-300 py-12 mt-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-8">
+                
+                <div class="col-span-1 md:col-span-1">
+                    <h3 class="text-2xl font-serif font-bold text-white mb-4">V&H</h3>
+                    <p class="text-sm mb-4">Conexão, fé e proteção. Artigos religiosos feitos com dedicação e materiais de primeira linha.</p>
+                    <div class="flex space-x-3">
+                        <a href="#" class="p-2 bg-white/10 rounded-full hover:bg-axe-principal transition"><i data-lucide="instagram" class="w-5 h-5"></i></a>
+                        <a href="#" class="p-2 bg-white/10 rounded-full hover:bg-green-600 transition"><i data-lucide="facebook" class="w-5 h-5"></i></a>
+                    </div>
+                </div>
+
+                <div>
+                    <h4 class="text-white font-bold mb-4 uppercase text-xs tracking-wider">Links Rápidos</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li><a href="#" onclick="showPage('home'); return false;" class="hover:text-white transition">Início</a></li>
+                        <li><a href="#" onclick="showPage('catalogo'); return false;" class="hover:text-white transition">Loja</a></li>
+                        <li><a href="#" onclick="showPage('sobre'); return false;" class="hover:text-white transition">Sobre Nós</a></li>
+                    </ul>
+                </div>
+
+                <div>
+                    <h4 class="text-white font-bold mb-4 uppercase text-xs tracking-wider">Atendimento</h4>
+                    <ul class="space-y-2 text-sm">
+                        <li class="flex items-center gap-2"><i data-lucide="phone" class="w-4 h-4"></i> (11) 94480-7848</li>
+                        <li class="flex items-center gap-2"><i data-lucide="mail" class="w-4 h-4"></i> contato@guiasvh.com.br</li>
+                        <li class="flex items-center gap-2"><i data-lucide="map-pin" class="w-4 h-4"></i> São Paulo, SP</li>
+                    </ul>
+                </div>
+
+            </div>
+            
+            <div class="border-t border-white/10 pt-8 text-center text-xs">
+                <p>&copy; <span id="year">2025</span> Guias de Axé V&H. Todos os direitos reservados.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // --- DADOS ---
+        const productsDB = [
+            { id: 1, name: 'Guia de Iemanjá', price: 75.00, desc: 'Proteção e Força das Águas', img: 'https://img.elo7.com.br/product/zoom/36B149A/matriz-de-bordado-orixa-iemanja-matriz.jpg', category: 'Orixás', orixa: 'Iemanjá', details: 'Guia luxuosa com 120 contas de cristal facetado, intercaladas com muranos azuis e transparentes. Firma de peixe prateada. Ideal para festas e rituais.' },
+            { id: 2, name: 'Guia de Oxum', price: 75.00, desc: 'Amor e Prosperidade', img: 'https://down-br.img.susercontent.com/file/13f15bf64e8465b7fceda56d829ef15d', category: 'Orixás', orixa: 'Oxum', details: 'Confeccionada em porcelana amarela ouro 8mm. Pingente de abebé dourado. Irradia a doçura e a riqueza da Mamãe Oxum.' },
+            { id: 3, name: 'Guia Caboclo', price: 75.00, desc: 'Cura e Força da Mata', img: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTNTraEiwYn27UQgwgxlrXUoxdbVEyTtoQWSg&s', category: 'Entidades', orixa: 'Caboclo', details: 'Sementes de açaí, contas de madeira e lágrima de Nossa Senhora. Penas sintéticas verdes. Uma conexão direta com a Jurema.' },
+            { id: 4, name: 'Kit Banho de Descarrego', price: 29.90, desc: 'Limpeza Profunda', img: 'https://png.pngtree.com/png-vector/20230318/ourmid/pngtree-herb-medicine-logo-vector-png-image_6653869.png', category: 'Banhos', orixa: 'Ervas', details: 'Mix de 7 ervas sagradas (arruda, guiné, Espada de São Jorge...). Embalagem kraft preservando as propriedades fitoterápicas.' },
+            { id: 5, name: 'Guia de Exu (Proteção)', price: 75.00, desc: 'Abertura de Caminhos', img: 'https://down-br.img.susercontent.com/file/45ca03051fc0b7b126791e66e7aee8a9', category: 'Entidades', orixa: 'Exu', details: 'Contas pretas e vermelhas foscas. Firma de caveira em howlita. Proteção forte contra demandas.' },
+            { id: 6, name: 'Guia Ogum', price: 79.90, desc: 'Lei e Ordem', img: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTkQVCtGbAw9OcCMxGr1zZB3ZOE_BT79sQhB4ILzqUjti81jSLEj3MW0ElbKAgPlvrT-qs&usqp=CAU', category: 'Orixás', orixa: 'Ogum', details: 'Azul marinho profundo. Cristais de vidro tcheco. Pingente de espada de São Jorge niquelada. Para quem guerreia e vence.' },
+            { id: 7, name: 'Guia de Oxalá', price: 55.00, desc: 'Paz e Harmonia', img: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSKdQxBsL9wtX0Zc8M4H-Cy7x_OBUi6hT53hSL9SuORID37o9Tu9PlyJZSNMxmu1U_xEAI&usqp=CAU', category: 'Orixás', orixa: 'Oxalá', details: 'Branco leitoso clássico. Contas de porcelana fria. Traz calma, serenidade e conexão com o Pai Maior.' },
+            { id: 8, name: 'Guia de Pombagira', price: 120.00, desc: 'Sedutora e Guardiã', img: 'https://i.pinimg.com/736x/85/87/b9/8587b98d49b59ea2f46030831e789470.jpg', category: 'Entidades', orixa: 'Pombagira', details: 'Brajá trançado de 7 fios. Miçangão vermelho e dourado. Rosas de resina. Uma joia de poder.' },
+            { id: 9, name: 'Banho Abre Caminhos (Prosperidade)', price: 24.90, desc: 'Atrai novas oportunidades e sucesso.', img: 'https://png.pngtree.com/png-vector/20230318/ourmid/pngtree-herb-medicine-logo-vector-png-image_6653869.png', category: 'Banhos', orixa: 'Ervas', details: 'Composto por Louro, Alecrim e Canela. Ideal para quebrar estagnação e atrair caminhos abertos.' },
+            { id: 10, name: 'Banho de Descarrego Forte', price: 26.90, desc: 'Neutraliza energias densas e negativas.', img: 'https://png.pngtree.com/png-vector/20230318/ourmid/pngtree-herb-medicine-logo-vector-png-image_6653869.png', category: 'Banhos', orixa: 'Ervas', details: 'Mix poderoso de Guiné, Arruda e Sal Grosso. Use para limpeza pesada e proteção imediata.' },
+            { id: 11, name: 'Banho Limpeza Energética Suave', price: 24.90, desc: 'Restabelece o equilíbrio e a leveza do corpo.', img: 'https://png.pngtree.com/png-vector/20230318/ourmid/pngtree-herb-medicine-logo-vector-png-image_6653869.png', category: 'Banhos', orixa: 'Ervas', details: 'Ervas frescas como Alfazema, Boldo e Manjericão. Para uso diário ou semanal, promovendo calma e bem-estar.' },
+            { id: 12, name: 'Guia de Marinheiros', price: 75.00, desc: 'Sereia e Mar (Proteção das Águas)', img: 'https://placehold.co/400x400/0284c7/FFF?text=Marinheiros', category: 'Entidades', orixa: 'Marinheiros', details: 'Contas de cristal azul e branco, intercaladas com conchas naturais. Traz a energia de Iemanjá e a força das marés.' },
+            { id: 13, name: 'Guia de Preto Velho', price: 65.00, desc: 'Sabedoria e Calma (Vibração de Nanã)', img: 'https://placehold.co/400x400/6D4C41/FFF?text=Preto+Velho', category: 'Entidades', orixa: 'Preto Velho', details: 'Sementes de dendê, lágrimas de Nossa Senhora e contas de madeira. Guia simples e poderosa para irradiação da sabedoria ancestral.' },
+            { id: 14, name: 'Guia de Erê', price: 75.00, desc: 'Alegria e Renovação (Vibração de Oxum/Ibeji)', img: 'https://placehold.co/400x400/B45309/FFF?text=Erê', category: 'Entidades', orixa: 'Erê', details: 'Colorida e vibrante. Contas de cristal de várias cores e pingente de doce. Traz a pureza e a leveza da criança para os caminhos.' },
+            { id: 15, name: 'Banho de Alfazema', price: 18.90, desc: 'Calma e Equilíbrio (Aroma e Proteção)', img: 'https://png.pngtree.com/png-vector/20230318/ourmid/pngtree-herb-medicine-logo-vector-png-image_6653869.png', category: 'Banhos', orixa: 'Ervas', details: 'Alfazema pura para banho ou defumação. Promove relaxamento, afasta a tristeza e atrai boas vibrações.' }
+        ];
+
+        // --- ESTADO ---
+        let state = {
+            cart: [],
+            user: null,
+            filter: 'Todos'
+        };
+
+        const PHONE_NUMBER = '5511944807848';
+
+        // --- SISTEMA DE MENSAGENS E UI ---
+        function showMessage(title, text, type = 'info') {
+            const modal = document.getElementById('message-modal');
+            const content = document.getElementById('message-content');
+            
+            // Configuração de cores baseada no tipo (CORREÇÃO DE TEMPLATE LITERALS)
+            let borderColor = type === 'success' ? 'border-green-500' : (type === 'error' ? 'border-red-500' : 'border-axe-principal');
+            let iconColor = type === 'success' ? 'text-green-500' : (type === 'error' ? 'text-red-500' : 'text-axe-principal');
+            let iconName = type === 'success' ? 'check-circle' : (type === 'error' ? 'alert-octagon' : 'info');
+
+            // Uso correto de crases (backticks)
+            content.className = `bg-white p-6 rounded-2xl shadow-2xl w-full max-w-sm border-t-4 transform transition-all scale-100 ${borderColor}`;
+            
+            content.innerHTML = `
+                <div class="flex items-center gap-3 mb-4">
+                    <i data-lucide="${iconName}" class="w-8 h-8 ${iconColor}"></i>
+                    <h3 class="text-xl font-bold text-gray-800">${title}</h3>
+                </div>
+                <p class="text-gray-600 mb-6 leading-relaxed">${text}</p>
+                <button onclick="document.getElementById('message-modal').classList.add('hidden')" class="w-full py-3 bg-gray-100 hover:bg-gray-200 rounded-xl font-bold text-gray-700 transition">
+                    Entendi
+                </button>
+            `;
+
+            modal.classList.remove('hidden');
+            lucide.createIcons();
+        }
+
+        function scrollToId(id) {
+            const el = document.getElementById(id);
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // --- LÓGICA DE PRODUTOS ---
+        function getProductById(id) {
+            return productsDB.find(p => p.id === id);
+        }
+
+        function renderProductCard(product) {
+            // CORREÇÃO CRÍTICA: Passagem de ID simples, sem objetos complexos no HTML
+            return `
+                <div class="product-card group">
+                    <div class="relative overflow-hidden rounded-xl mb-4 h-56 cursor-pointer" onclick="openDetail(${product.id})">
+                        <img src="${product.img}" alt="${product.name}" class="w-full h-full object-cover transition duration-500 group-hover:scale-110">
+                        <div class="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition"></div>
+                        <span class="absolute top-2 right-2 bg-white/90 px-2 py-1 text-xs font-bold rounded shadow-sm text-terra-escura uppercase">${product.category}</span>
+                    </div>
+                    <div class="flex flex-col flex-grow">
+                        <h3 class="font-bold text-lg text-terra-escura leading-tight mb-1 cursor-pointer hover:text-axe-principal transition" onclick="openDetail(${product.id})">${product.name}</h3>
+                        <p class="text-sm text-gray-500 mb-4 line-clamp-2">${product.desc}</p>
+                        <div class="mt-auto flex justify-between items-center pt-3 border-t border-gray-100">
+                            <span class="text-xl font-extrabold text-axe-secundario">R$ ${product.price.toFixed(2).replace('.', ',')}</span>
+                            <button onclick="addToCartById(${product.id})" class="w-10 h-10 rounded-full bg-terra-clara text-terra-escura flex items-center justify-center hover:bg-axe-principal hover:text-white transition shadow-sm" title="Adicionar">
+                                <i data-lucide="plus" class="w-5 h-5"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderCatalog(filter = 'Todos') {
+            const list = document.getElementById('product-list');
+            const homeList = document.getElementById('home-products');
+            
+            const filtered = filter === 'Todos' ? productsDB : productsDB.filter(p => p.category === filter);
+            
+            const html = filtered.map(renderProductCard).join('');
+            
+            // Renderiza no catálogo
+            if (list) list.innerHTML = html;
+            
+            // Renderiza na Home (apenas os 4 primeiros)
+            if (homeList) homeList.innerHTML = productsDB.slice(0, 4).map(renderProductCard).join('');
+            
+            // Renderiza Botões de Filtro
+            const categories = ['Todos', ...new Set(productsDB.map(p => p.category))];
+            const filterContainer = document.getElementById('filter-buttons');
+            if(filterContainer) {
+                filterContainer.innerHTML = categories.map(cat => `
+                    <button onclick="setFilter('${cat}')" class="px-4 py-2 rounded-full text-sm font-bold transition ${state.filter === cat ? 'bg-axe-principal text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
+                        ${cat}
+                    </button>
+                `).join('');
+            }
+
+            lucide.createIcons();
+        }
+
+        function setFilter(cat) {
+            state.filter = cat;
+            document.getElementById('catalogo-subtitle').innerText = cat === 'Todos' ? 'Todos os itens feitos com axé.' : `Exibindo categoria: ${cat}`;
+            renderCatalog(cat);
+        }
+
+        function openDetail(id) {
+            const product = getProductById(id);
+            if (!product) return;
+
+            const container = document.getElementById('product-detail-content');
+            container.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-0">
+                    <div class="h-64 md:h-auto bg-gray-100 relative">
+                         <img src="${product.img}" class="w-full h-full object-cover">
+                    </div>
+                    <div class="p-8 md:p-12 flex flex-col justify-center">
+                        <span class="text-sm font-bold text-axe-principal tracking-wider uppercase mb-2">${product.orixa}</span>
+                        <h2 class="text-3xl md:text-4xl font-serif font-bold text-terra-escura mb-4">${product.name}</h2>
+                        <div class="text-3xl font-bold text-axe-secundario mb-6">R$ ${product.price.toFixed(2).replace('.', ',')}</div>
+                        <p class="text-gray-600 leading-relaxed mb-8 text-lg">${product.details}</p>
+                        
+                        <div class="flex gap-4">
+                            <button onclick="addToCartById(${product.id})" class="flex-1 btn-primary py-4 text-lg shadow-xl hover:shadow-2xl hover:-translate-y-1 transform transition">
+                                <i data-lucide="shopping-bag" class="w-5 h-5 mr-2"></i> Adicionar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            showPage('detalhe');
+            lucide.createIcons();
+        }
+
+        // --- CARRINHO & FIREBASE/LOCAL ---
+        
+        // Adiciona usando apenas ID para segurança
+        function addToCartById(id) {
+            if (!state.user && !window.isLocalMode) {
+                showMessage('Login Necessário', 'Aguarde a conexão com o servidor...', 'error');
+                return;
+            }
+            
+            const product = getProductById(id);
+            const existing = state.cart.find(item => item.id === id);
+            
+            let newCart;
+            if (existing) {
+                newCart = state.cart.map(item => item.id === id ? {...item, quantity: item.quantity + 1} : item);
+            } else {
+                newCart = [...state.cart, {...product, quantity: 1}];
+            }
+            
+            saveCart(newCart);
+            showMessage('Adicionado!', `${product.name} está no carrinho.`, 'success');
+        }
+
+        async function saveCart(newCart) {
+            // MODO LOCAL: Salva no LocalStorage
+            if (window.isLocalMode) {
+                state.cart = newCart;
+                localStorage.setItem('vh_cart', JSON.stringify(newCart));
+                renderCart();
+                return;
+            }
+
+            // MODO FIREBASE
+            if (!state.user) return;
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app';
+            const docRef = window.doc(window.db, `artifacts/${appId}/users/${state.user.uid}/cart/current`);
+            
+            try {
+                await window.setDoc(docRef, { items: newCart, updatedAt: new Date() });
+                // No Firebase a UI atualiza via onSnapshot automaticamente
+            } catch (error) {
+                console.error("Erro ao salvar:", error);
+                showMessage('Erro', 'Falha ao salvar carrinho.', 'error');
+            }
+        }
+
+        function updateQuantity(id, qty) {
+            const newQty = parseInt(qty);
+            if (newQty < 1) return removeFromCart(id);
+            
+            const newCart = state.cart.map(item => item.id === id ? {...item, quantity: newQty} : item);
+            saveCart(newCart);
+        }
+
+        function removeFromCart(id) {
+            const newCart = state.cart.filter(item => item.id !== id);
+            saveCart(newCart);
+        }
+
+        function renderCart() {
+            const container = document.getElementById('cart-items');
+            const totalEl = document.getElementById('cart-total');
+            const counterEl = document.getElementById('cart-counter');
+            const btn = document.getElementById('checkout-btn');
+
+            let total = 0;
+            let count = 0;
+
+            if (state.cart.length === 0) {
+                container.innerHTML = `
+                    <div id="empty-cart-message" class="flex flex-col items-center justify-center h-full text-gray-400">
+                        <i data-lucide="shopping-basket" class="w-16 h-16 mb-4 opacity-50"></i>
+                        <p>Seu carrinho está vazio.</p>
+                    </div>
+                `;
+                btn.disabled = true;
+                counterEl.classList.add('scale-0', 'opacity-0');
+            } else {
+                btn.disabled = false;
+                
+                container.innerHTML = state.cart.map(item => {
+                    total += item.price * item.quantity;
+                    count += item.quantity;
+                    return `
+                        <div class="flex gap-3 mb-4 bg-white p-2 rounded-lg border border-gray-100">
+                            <img src="${item.img}" class="w-16 h-16 rounded-md object-cover bg-gray-50">
+                            <div class="flex-1 min-w-0">
+                                <h4 class="font-bold text-sm text-terra-escura truncate">${item.name}</h4>
+                                <p class="text-xs text-gray-500">R$ ${item.price.toFixed(2)} un.</p>
+                                <div class="flex items-center gap-2 mt-2">
+                                    <button onclick="updateQuantity(${item.id}, ${item.quantity - 1})" class="w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center">-</button>
+                                    <span class="text-sm font-bold w-4 text-center">${item.quantity}</span>
+                                    <button onclick="updateQuantity(${item.id}, ${item.quantity + 1})" class="w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center">+</button>
+                                </div>
+                            </div>
+                            <div class="flex flex-col items-end justify-between">
+                                <button onclick="removeFromCart(${item.id})" class="text-gray-400 hover:text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                                <span class="font-bold text-sm">R$ ${(item.price * item.quantity).toFixed(2)}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                counterEl.innerText = count;
+                counterEl.classList.remove('scale-0', 'opacity-0');
+            }
+            
+            totalEl.innerText = total.toFixed(2).replace('.', ',');
+            lucide.createIcons();
+        }
+
+        function toggleCart() {
+            const sidebar = document.getElementById('cart-sidebar');
+            const overlay = document.getElementById('cart-overlay');
+            const isOpen = !sidebar.classList.contains('translate-x-full');
+
+            if (isOpen) {
+                sidebar.classList.add('translate-x-full');
+                overlay.classList.add('opacity-0');
+                setTimeout(() => overlay.classList.add('hidden'), 300);
+            } else {
+                overlay.classList.remove('hidden');
+                setTimeout(() => overlay.classList.remove('opacity-0'), 10);
+                sidebar.classList.remove('translate-x-full');
+            }
+        }
+
+        // --- CHECKOUT WHATSAPP ---
+        function checkoutViaWhatsApp() {
+            if (state.cart.length === 0) return;
+
+            // Define ID para checkout
+            const userIdDisplay = state.user && state.user.uid ? state.user.uid.slice(0,5) : 'Visitante';
+            
+            let msg = `Olá! Gostaria de fazer um pedido (ID: ${userIdDisplay}):\n\n`;
+            let total = 0;
+
+            state.cart.forEach(item => {
+                const sub = item.price * item.quantity;
+                total += sub;
+                msg += `▪ ${item.quantity}x ${item.name} (R$ ${sub.toFixed(2)})\n`;
+            });
+
+            msg += `\n*TOTAL: R$ ${total.toFixed(2)}*\n\n`;
+            msg += `Aguardo informações sobre frete e pagamento. Axé!`;
+
+            const url = `https://wa.me/${PHONE_NUMBER}?text=${encodeURIComponent(msg)}`;
+            window.open(url, '_blank');
+        }
+
+        // --- NAVEGAÇÃO ---
+        function showPage(pageId, filterArg = null) {
+            document.querySelectorAll('.page-content').forEach(p => p.style.display = 'none');
+            const target = document.getElementById(pageId);
+            if(target) {
+                target.style.display = 'block';
+                target.style.animation = 'none';
+                target.offsetHeight; /* trigger reflow */
+                target.style.animation = 'fadeIn 0.4s ease-in-out';
+            }
+            
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            
+            if (pageId === 'catalogo') {
+                state.filter = filterArg || 'Todos';
+                renderCatalog(state.filter);
+            }
+        }
+
+        function toggleMobileMenu() {
+            const menu = document.getElementById('mobile-menu');
+            menu.classList.toggle('hidden');
+        }
+
+        // --- INICIALIZAÇÃO ---
+        async function init() {
+            
+            // LÓGICA MODO LOCAL (Sem Firebase)
+            if (window.isLocalMode) {
+                // Removido referência a 'current-user-id'
+                // document.getElementById('current-user-id').innerText = "Visitante (Local)";
+                
+                // Carrega carrinho do localStorage
+                const savedCart = localStorage.getItem('vh_cart');
+                if (savedCart) {
+                    try {
+                        state.cart = JSON.parse(savedCart);
+                        renderCart();
+                    } catch(e) { console.error("Erro ao ler carrinho local", e); }
+                }
+                
+                document.getElementById('year').innerText = new Date().getFullYear();
+                renderCatalog();
+                showPage('home');
+                return;
+            }
+
+            // LÓGICA MODO FIREBASE (Com Backend)
+            const auth = window.auth;
+            
+            if (typeof __initial_auth_token !== 'undefined') {
+                await window.signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await window.signInAnonymously(auth);
+            }
+
+            window.onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    state.user = user;
+                    // Removido referência a 'current-user-id'
+                    // document.getElementById('current-user-id').innerText = user.uid;
+                    
+                    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app';
+                    const cartRef = window.doc(window.db, `artifacts/${appId}/users/${user.uid}/cart/current`);
+                    
+                    window.onSnapshot(cartRef, (doc) => {
+                        if (doc.exists()) {
+                            state.cart = doc.data().items || [];
+                        } else {
+                            state.cart = [];
+                        }
+                        renderCart();
+                    });
+                }
+            });
+
+            document.getElementById('year').innerText = new Date().getFullYear();
+            renderCatalog();
+            showPage('home');
+        }
+
+        // Start Logic with Event Listener or Direct Call
+        if (window.infraInitialized) {
+            init();
+        } else {
+            window.addEventListener('infra-ready', () => {
+                init();
+            });
+        }
+
+    </script>
+</body>
+
+
+</html>
